@@ -57,6 +57,10 @@ export default function GeneratePage() {
 
     const callGenerate = async () => {
       try {
+        const storedUserId =
+          typeof window !== "undefined"
+            ? window.localStorage.getItem("rhymemind-user-id")
+            : null
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: {
@@ -66,6 +70,7 @@ export default function GeneratePage() {
             content,
             vibe: storedVibe,
             artists,
+            ...(storedUserId ? { userId: storedUserId } : {}),
           }),
           signal: controller.signal,
         })
@@ -79,7 +84,8 @@ export default function GeneratePage() {
 
           const data = await res.json().catch(() => null)
           const message = data?.error ?? "트랙 생성 중 오류가 발생했습니다."
-          alert(message)
+          const detail = data?.detail ? `\n\n[상세] ${data.detail}` : ""
+          alert(message + detail)
           router.replace("/")
           return
         }
@@ -88,9 +94,14 @@ export default function GeneratePage() {
           id: string
           lyrics: string
           audioUrl: string
+          profile?: { id: string; credits?: number }
         }
 
         if (isCancelled) return
+
+        if (data.profile?.id && typeof window !== "undefined") {
+          window.localStorage.setItem("rhymemind-user-id", data.profile.id)
+        }
 
         const lyricLines = data.lyrics
           .split("\n")
@@ -103,7 +114,20 @@ export default function GeneratePage() {
 
         sessionStorage.setItem("rhymemind-last-song-id", data.id)
         sessionStorage.setItem("rhymemind-last-lyrics", data.lyrics)
-        sessionStorage.setItem("rhymemind-last-audio-url", data.audioUrl)
+        const blocklist = [
+          "sample-3",
+          "sample-3s",
+          "sample-3s.mp3",
+          "samplelib.com",
+          "download.samplelib.com",
+        ]
+        const isSample =
+          !data.audioUrl ||
+          !data.audioUrl.startsWith("http") ||
+          blocklist.some((s) => data.audioUrl.toLowerCase().includes(s))
+        if (!isSample) {
+          sessionStorage.setItem("rhymemind-last-audio-url", data.audioUrl)
+        }
 
         setProgress(100)
         setTimeout(() => {

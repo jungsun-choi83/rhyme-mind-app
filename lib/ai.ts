@@ -18,6 +18,7 @@ export async function generateLyrics({
   vibe: string
   artists: string[]
 }) {
+  console.error("[ai] generateLyrics ENTERED")
   const fallbackLyrics = () => {
     const firstLine = content.split("\n").map((l) => l.trim()).filter(Boolean)[0] ?? "공부할 내용을 비트 위에 실어"
     const vibeText = vibe || "Hype"
@@ -99,57 +100,116 @@ ${content}
     const trimmed = text.trim()
     return trimmed.length > 0 ? trimmed : fallbackLyrics()
   } catch (error) {
-    console.error("Anthropic generateLyrics failed, falling back to local lyrics", error)
+    console.error("[ai] generateLyrics CATCH - returning fallback")
+    const err = error as { message?: string; status?: number }
+    const msg = typeof err?.message === "string" ? err.message : String(error)
+    const isCreditError = msg.includes("credit balance is too low") || msg.includes("credit")
+    if (isCreditError) {
+      console.warn("[lyrics] Anthropic credits exhausted, using fallback. Add credits at console.anthropic.com")
+    } else {
+      console.error("Anthropic generateLyrics failed, falling back to local lyrics", error)
+    }
     return fallbackLyrics()
   }
 }
 
+// meta/musicgen - 동기 생성 (8초, 60초 제한 내 완료)
+const MUSICGEN_MODEL = "meta/musicgen"
+
+function tryGetUrlFromValue(v: unknown): string | null {
+  if (!v) return null
+  if (typeof v === "string" && v.startsWith("http")) return v
+  if (typeof v === "function") {
+    const u = (v as () => string | URL)()
+    return typeof u === "string" ? u : (u as URL)?.href ?? null
+  }
+  if (v && typeof v === "object" && "href" in v) {
+    const href = (v as { href?: string }).href
+    if (typeof href === "string" && href.startsWith("http")) return href
+  }
+  return null
+}
+
+export function extractAudioUrl(output: unknown): string | null {
+  if (!output) return null
+
+  // string
+  if (typeof output === "string" && output.startsWith("http")) return output
+
+  // array (string[] or object[])
+  if (Array.isArray(output) && output.length > 0) {
+    for (const item of output) {
+      const u = extractAudioUrl(item)
+      if (u) return u
+    }
+    return null
+  }
+
+  // object (url, audio, file)
+  if (output && typeof output === "object") {
+    const obj = output as Record<string, unknown>
+    for (const key of ["url", "audio", "file"]) {
+      const v = obj[key]
+      const u = tryGetUrlFromValue(v)
+      if (u) return u
+    }
+  }
+
+  return null
+}
+
+/** 동기로 음악 생성 (8초, 빠르게 완료) */
 export async function generateMusicFromLyrics({
   lyrics,
   vibe,
+  artists,
 }: {
   lyrics: string
   vibe: string
+  artists: string[]
 }) {
-  const fallbackUrl =
-    "https://samplelib.com/lib/preview/mp3/sample-3s.mp3"
-
-  if (!process.env.REPLICATE_API_TOKEN || !process.env.REPLICATE_MODEL_ID) {
-    return fallbackUrl
+  if (!process.env.REPLICATE_API_TOKEN) {
+    throw new Error("REPLICATE_API_TOKEN is not set")
   }
 
-  const model = process.env.REPLICATE_MODEL_ID
-
-  const prompt = `
-Generate a short ${vibe} hip-hop instrumental with Korean rap vocals that fit these lyrics.
-Lyrics:
-${lyrics}
-`.trim()
-
-  try {
-    const output = (await replicate.run(model, {
-      input: {
-        prompt,
-      },
-    })) as unknown
-
-    // Many music models on Replicate return an array of URLs.
-    let audioUrl: string | null = null
-    if (Array.isArray(output) && output.length > 0 && typeof output[0] === "string") {
-      audioUrl = output[0]
-    } else if (typeof output === "string") {
-      audioUrl = output
-    }
-
-    if (!audioUrl) {
-      console.error("No audio URL found in Replicate response, using fallback")
-      return fallbackUrl
-    }
-
-    return audioUrl
-  } catch (error) {
-    console.error("Replicate generateMusicFromLyrics failed, using fallback audio", error)
-    return fallbackUrl
+  const artistStyle = artists.length > 0 ? ` in the style of ${artists.join(", ")}` : ""
+  const vibeMap: Record<string, string> = {
+    hype: "energetic, hype, high energy",
+    chill: "chill, relaxed, lo-fi",
+    smooth: "smooth, mellow, R&B",
+    hard: "hard, aggressive, trap",
   }
+  const vibeDesc = vibeMap[vibe.toLowerCase()] ?? vibe
+  const prompt = `${vibeDesc} hip-hop instrumental with rap vocals${artistStyle}, 808 bass`.trim()
+
+  const input = {
+    model_version: "large",
+    prompt,
+    duration: 8,
+    output_format: "wav",
+  }
+
+  console.error("[music] replicate.run", MUSICGEN_MODEL, "duration: 8")
+
+  const output = await replicate.run(MUSICGEN_MODEL, { input })
+  const prediction = { output }
+  console.error("=== REPLICATE FULL ===", JSON.stringify(prediction, null, 2))
+  console.error("[music] prediction.output:", JSON.stringify(output, null, 2))
+
+  const rawAudioUrl = extractAudioUrl(output)
+  console.error("[music] extracted rawAudioUrl:", rawAudioUrl)
+
+  if (!rawAudioUrl || !rawAudioUrl.startsWith("http")) {
+    console.error("[music] failed to extract audio URL. output:", JSON.stringify(output, null, 2))
+    return null
+  }
+
+  const sampleBlocklist = ["sample-3", "sample-3s", "samplelib", "download.samplelib", "preview/mp3/sample"]
+  if (sampleBlocklist.some((s) => rawAudioUrl.toLowerCase().includes(s))) {
+    console.error("[music] Replicate returned sample/fallback URL, returning null:", rawAudioUrl)
+    return null
+  }
+
+  return rawAudioUrl
 }
 

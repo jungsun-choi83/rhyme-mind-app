@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -28,10 +28,14 @@ RhymeMind 타고 지식이 춤춰져
 
 type LyricsSectionProps = {
   lyrics?: string
+  defaultExpanded?: boolean
 }
 
-export function LyricsSection({ lyrics }: LyricsSectionProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
+export function LyricsSection({ lyrics, defaultExpanded }: LyricsSectionProps) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded ?? false)
+  useEffect(() => {
+    if (lyrics?.trim()) setIsExpanded(true)
+  }, [lyrics])
   const text = lyrics && lyrics.trim().length > 0 ? lyrics : fallbackLyrics
 
   return (

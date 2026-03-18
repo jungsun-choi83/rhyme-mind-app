@@ -4,6 +4,23 @@ import { useState, useRef, useEffect } from "react"
 import { Play, Pause, SkipBack, SkipForward, Volume2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
+const SAMPLE_BLOCKLIST = [
+  "sample-3",
+  "sample-3s",
+  "sample-3s.mp3",
+  "samplelib",
+  "download.samplelib",
+  "/sample-3s.mp3",
+]
+
+function isValidAudioUrl(url: string | null | undefined): url is string {
+  if (!url || typeof url !== "string" || !url.trim()) return false
+  const lower = url.toLowerCase()
+  if (SAMPLE_BLOCKLIST.some((s) => lower.includes(s))) return false
+  if (!url.startsWith("http")) return false
+  return true
+}
+
 interface AudioPlayerProps {
   className?: string
   audioUrl?: string | null
@@ -16,6 +33,8 @@ export function AudioPlayer({ className, audioUrl }: AudioPlayerProps) {
   const [duration, setDuration] = useState(0)
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const src = isValidAudioUrl(audioUrl) ? audioUrl : null
 
   useEffect(() => {
     const audio = audioRef.current
@@ -62,19 +81,36 @@ export function AudioPlayer({ className, audioUrl }: AudioPlayerProps) {
   }, [isPlaying])
 
   useEffect(() => {
-    // reset when url changes
     setIsPlaying(false)
     setProgress(0)
     setCurrentTime(0)
-  }, [audioUrl])
+  }, [src])
+
+  if (!src) {
+    console.error("[AudioPlayer] missing src, audioUrl:", audioUrl)
+    return (
+      <div
+        className={cn(
+          "space-y-4 py-6 text-center border border-destructive/30 rounded-xl bg-destructive/5",
+          className
+        )}
+      >
+        <p className="text-sm font-medium text-destructive">오디오 없음</p>
+        <p className="text-xs text-muted-foreground">
+          음악을 불러올 수 없습니다. 재생성을 시도해 주세요.
+        </p>
+      </div>
+    )
+  }
+
+  console.error("[AudioPlayer] src:", src)
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
-    return `${mins}:${secs.toString().padStart(2, '0')}`
+    return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
-  // Generate waveform bars
   const bars = Array.from({ length: 50 }).map((_, i) => {
     const height = Math.sin(i * 0.3) * 30 + Math.random() * 20 + 10
     return height
@@ -82,7 +118,6 @@ export function AudioPlayer({ className, audioUrl }: AudioPlayerProps) {
 
   return (
     <div className={cn("space-y-6", className)}>
-      {/* Waveform Visualization */}
       <div className="relative h-20 flex items-center justify-center gap-0.5">
         {bars.map((height, i) => {
           const isActive = (i / bars.length) * 100 <= progress
@@ -97,31 +132,23 @@ export function AudioPlayer({ className, audioUrl }: AudioPlayerProps) {
             />
           )
         })}
-        
-        {/* Progress indicator */}
-        <div 
+        <div
           className="absolute top-0 bottom-0 w-0.5 bg-foreground"
           style={{ left: `${progress}%` }}
         />
       </div>
 
-      {/* Time */}
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>{formatTime(currentTime)}</span>
         <span>{duration ? formatTime(duration) : "0:00"}</span>
       </div>
 
-      {/* Controls */}
       <div className="flex items-center justify-center gap-6">
         <button className="p-2 text-muted-foreground hover:text-foreground transition-colors" disabled>
           <SkipBack className="w-5 h-5" />
         </button>
-        
         <button
-          onClick={() => {
-            if (!audioUrl) return
-            setIsPlaying((prev) => !prev)
-          }}
+          onClick={() => setIsPlaying((prev) => !prev)}
           className="w-14 h-14 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-colors"
         >
           {isPlaying ? (
@@ -130,13 +157,11 @@ export function AudioPlayer({ className, audioUrl }: AudioPlayerProps) {
             <Play className="w-6 h-6 ml-0.5" />
           )}
         </button>
-        
         <button className="p-2 text-muted-foreground hover:text-foreground transition-colors" disabled>
           <SkipForward className="w-5 h-5" />
         </button>
       </div>
 
-      {/* Volume (decorative) */}
       <div className="flex items-center justify-center gap-2">
         <Volume2 className="w-4 h-4 text-muted-foreground" />
         <div className="w-24 h-1 bg-secondary rounded-full">
@@ -144,7 +169,7 @@ export function AudioPlayer({ className, audioUrl }: AudioPlayerProps) {
         </div>
       </div>
 
-      <audio ref={audioRef} src={audioUrl ?? undefined} />
+      <audio ref={audioRef} src={src} />
     </div>
   )
 }
